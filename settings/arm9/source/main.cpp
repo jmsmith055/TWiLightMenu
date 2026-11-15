@@ -1256,6 +1256,7 @@ int settingsMode(void)
 		.option(STR_DIRECTORIES, STR_DESCRIPTION_DIRECTORIES_1, Option::Bool(&ms().showDirectories), {STR_SHOW, STR_HIDE}, {true, false})
 		.option(STR_FLAT_ROM_LIST, STR_DESCRIPTION_FLAT_ROM_LIST, Option::Bool(&ms().flatRomList), {STR_ON, STR_OFF}, {true, false})
 		.option(STR_SLOT1_CART_IN_LIST, STR_DESCRIPTION_SLOT1_CART_IN_LIST, Option::Bool(&ms().slot1CartInList), {STR_ON, STR_OFF}, {true, false})
+		.option(STR_DSI_APPS_IN_LIST, STR_DESCRIPTION_DSI_APPS_IN_LIST, Option::Bool(&ms().dsiAppsInList), {STR_ON, STR_OFF}, {true, false})
 		.option(STR_SHOW_HIDDEN, STR_DESCRIPTION_SHOW_HIDDEN_1, Option::Bool(&ms().showHidden), {STR_SHOW, STR_HIDE}, {true, false})
 		.option(STR_SHOW_PHOTO, STR_DESCRIPTION_SHOW_PHOTO, Option::Bool(&ms().showPhoto), {STR_SHOW, STR_HIDE}, {true, false});
 

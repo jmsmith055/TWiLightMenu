@@ -19,6 +19,7 @@
 #include "date.h"
 #include "fileCopy.h"
 #include "nand/nandio.h"
+#include "dsiApps.h"
 
 #include "graphics/graphics.h"
 
@@ -144,13 +145,7 @@ static bool findSystemApp(const char* const* apps, int appCount, const char* nds
 		return false;
 	}
 
-	static bool nandInited = false;
-	static bool nandMounted = false;
-	if (!nandInited) {
-		nandMounted = fatMountSimple("nand", &io_dsi_nand) && (access("nand:/", F_OK) == 0);
-		nandInited = true;
-	}
-	if (!nandMounted) {
+	if (!nandMount()) {
 		return false;
 	}
 

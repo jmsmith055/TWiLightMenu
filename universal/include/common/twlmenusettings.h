@@ -317,6 +317,7 @@ public:
 	TSortMethod sortMethod;
 	bool hideEmptyBoxes;
 	bool showDirectories;
+	bool dsiAppsInList; // DSi/3DS/Saturn/HBL UIs: show the DSi's own apps in the game list, after the game card
 	bool slot1CartInList; // DSi/3DS/Saturn/HBL UIs: show the inserted game card first in the game list
 	bool flatRomList; // DSi/3DS/Saturn/HBL UIs: list every game under the ROM folder in one list, without folders
 	bool showHidden;

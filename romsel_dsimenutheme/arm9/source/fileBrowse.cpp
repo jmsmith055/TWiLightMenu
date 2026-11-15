@@ -29,6 +29,7 @@
 #include "perGameSettings.h"
 #include "flatRomList.h"
 #include "slot1Cart.h"
+#include "dsiApps.h"
 #include "incompatibleGameMap.h"
 #include "compatibleDSiWareMap.h"
 #include "gbaswitch.h"
@@ -227,6 +228,12 @@ void recalculateBoxesCount() {
 		last_used_box = std::clamp(file_count-1-PAGENUM*40, 0, 39);
 	else
 		last_used_box = 39;
+}
+
+// The game card and DSi apps aren't files in the current folder: they're launched
+// differently and can't be hidden, deleted or given per-game settings.
+static bool isSpecialListEntry(std::string_view name) {
+	return isSlot1CartEntry(name) || isDsiAppEntry(name);
 }
 
 // Orders entries by file name, then by the rest of the path. In the flat list this keeps
@@ -556,12 +563,17 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 			logPrint("Custom");
 		}
 		logPrint("\n\n");
+		// The inserted game card goes first, then the DSi apps, then the games (after ".." when that's shown)
+		const std::vector<std::string> &dsiApps = dsiAppPaths();
+		for (auto app = dsiApps.rbegin(); app != dsiApps.rend(); ++app) {
+			dirContents.insert(dirContents.begin(), {*app, false, -1, false});
+			file_count++;
+		}
 		if (slot1CartPrepare()) {
-			// The inserted game card goes first, after ".." when that's shown
 			dirContents.insert(dirContents.begin(), {slot1CartPath(), false, -1, false});
 			file_count++;
-			recalculateBoxesCount();
 		}
+		recalculateBoxesCount();
 		if (backFound) {
 			dirContents.insert(dirContents.begin(), {"..", true, backPos, false});
 		}
@@ -2967,7 +2979,7 @@ void getFileInfo(SwitchState scrn, vector<vector<DirEntry>> dirContents, bool re
 			} else {
 				bnrRomType[i] = launcherRomType(std_romsel_filename);
 
-				if (isSlot1CartEntry(std_romsel_filename)) {
+				if (isSpecialListEntry(std_romsel_filename)) {
 					isValid[i] = true;
 					isTwlm[i] = false;
 					isDSiWare[i] = false;
@@ -4145,6 +4157,19 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 					switchDevice();
 					return "null";
 				}
+				if (isDsiAppEntry(entry->name)) {
+					// Boot the app from NAND through Unlaunch
+					snd().playLaunch();
+					controlTopBright = true;
+					fadeType = false; // Fade to white
+					snd().fadeOutStream();
+					for (int i = 0; i < 60; i++) {
+						bgOperations(true);
+					}
+					snd().stopStream();
+					ms().saveSettings();
+					unlaunchRomBoot(entry->name);
+				}
 				if (entry->isDirectory) {
 					// Enter selected directory
 					if (chdir(entry->name.c_str()) != 0) {
@@ -4693,7 +4718,7 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 
 			// (un)Hide file/folder
 			if ((pressed & KEY_X) && !ms().kioskMode && !ms().preventDeletion && bannerTextShown && showSTARTborder
-			&& dirContents[scrn].at(CURPOS + PAGENUM * 40).name != ".." && !isSlot1CartEntry(dirContents[scrn].at(CURPOS + PAGENUM * 40).name)) {
+			&& dirContents[scrn].at(CURPOS + PAGENUM * 40).name != ".." && !isSpecialListEntry(dirContents[scrn].at(CURPOS + PAGENUM * 40).name)) {
 				DirEntry *entry = &dirContents[scrn].at((PAGENUM * 40) + (CURPOS));
 				bool unHide = (FAT_getAttr(entry->name.c_str()) & ATTR_HIDDEN || (strncmp(entry->name.c_str(), ".", 1) == 0 && entry->name != ".."));
 				if (ms().theme == TWLSettings::EThemeSaturn) {
@@ -4884,7 +4909,7 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 			}
 
 			if ((pressed & KEY_Y) && !ms().kioskMode && isValid[CURPOS] && !isTwlm[CURPOS] && !isDirectory[CURPOS] && bannerTextShown && showSTARTborder
-			 && !isSlot1CartEntry(dirContents[scrn].at(CURPOS + PAGENUM * 40).name)) {
+			 && !isSpecialListEntry(dirContents[scrn].at(CURPOS + PAGENUM * 40).name)) {
 				perGameSettings(dirContents[scrn].at(CURPOS + PAGENUM * 40).name, &hasDsiBinaries, &dsiBinariesChecked);
 				bannerTextShown = false;
 			}
