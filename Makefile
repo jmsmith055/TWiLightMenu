@@ -8,7 +8,7 @@ export PROJECT	:=	$(CURDIR)
 #---------------------------------------------------------------------------------
 # Goals for Build
 #---------------------------------------------------------------------------------
-.PHONY: all package booter booter_fc 3dssplash gbapatcher quickmenu manual resources romsel_aktheme romsel_dsimenutheme romsel_r4theme settings slot1launch title
+.PHONY: all package package-dsi booterbooter_fc 3dssplash gbapatcher quickmenu manual resources romsel_aktheme romsel_dsimenutheme romsel_r4theme settings slot1launch title
 
 all:	booter booter_fc 3dssplash gbapatcher quickmenu manual resources romsel_aktheme romsel_dsimenutheme romsel_r4theme settings slot1launch title
 
@@ -31,6 +31,11 @@ package:
 
 	@rm -rf 7zfile/*/.gitkeep
 	@rm -rf 7zfile/*/*/.gitkeep
+
+# DSi-only SD card package from 7zfile (run "make package" first).
+# Use "make package-dsi NDS_BOOTSTRAP=1" to include the latest nds-bootstrap release.
+package-dsi:
+	@NDS_BOOTSTRAP=$(NDS_BOOTSTRAP) bash ./package_dsi.sh
 
 booter:
 	@$(MAKE) -C booter

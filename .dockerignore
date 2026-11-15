@@ -1,0 +1,3 @@
+# The image copies nothing from the repo (the source is mounted at /data when running),
+# so don't send the repository to the Docker daemon as build context.
+*
