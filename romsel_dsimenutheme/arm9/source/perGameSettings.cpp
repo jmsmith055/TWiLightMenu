@@ -36,6 +36,7 @@
 #include "common/systemdetails.h"
 #include "defaultSettings.h"
 #include "myDSiMode.h"
+#include "flatRomList.h"
 
 #include "colorLutBlacklist.h"
 #include "twlClockExcludeMap.h"
@@ -122,7 +123,7 @@ bool blacklisted_asyncCardRead = false;
 bool extension(const std::string_view filename, const std::vector<std::string_view> extensions);
 
 void loadPerGameSettings (std::string filename) {
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	perGameSettings_directBoot = pergameini.GetInt("GAMESETTINGS", "DIRECT_BOOT", (isModernHomebrew[CURPOS] || ms().secondaryDevice));	// Homebrew only
 	if (isHomebrew[CURPOS]) {
@@ -202,7 +203,7 @@ void loadPerGameSettings (std::string filename) {
 }
 
 void savePerGameSettings (std::string filename) {
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	if (isHomebrew[CURPOS]) {
 		pergameini.SetInt("GAMESETTINGS", "LANGUAGE", perGameSettings_language);
@@ -279,33 +280,33 @@ void savePerGameSettings (std::string filename) {
 }
 
 int getSaveNo (std::string filename) {
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	perGameSettings_saveNo = pergameini.GetInt("GAMESETTINGS", "SAVE_NUMBER", 0);
 	return perGameSettings_saveNo;
 }
 
 bool checkIfShowAPMsg (std::string filename) {
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	return (pergameini.GetInt("GAMESETTINGS", "NO_SHOW_AP_MSG", 0) == 0);
 }
 
 void dontShowAPMsgAgain (std::string filename) {
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	pergameini.SetInt("GAMESETTINGS", "NO_SHOW_AP_MSG", 1);
 	pergameini.SaveIniFile( pergamefilepath );
 }
 
 bool checkIfShowRAMLimitMsg (std::string filename) {
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	return (pergameini.GetInt("GAMESETTINGS", "NO_SHOW_RAM_LIMIT", 0) == 0);
 }
 
 void dontShowRAMLimitMsgAgain (std::string filename) {
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	pergameini.SetInt("GAMESETTINGS", "NO_SHOW_RAM_LIMIT_MSG", 1);
 	pergameini.SaveIniFile( pergamefilepath );
@@ -316,7 +317,7 @@ bool checkIfDSiMode (std::string filename) {
 		return false;
 	}
 
-	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), filename.c_str());
+	snprintf(pergamefilepath, sizeof(pergamefilepath), "%s/_nds/TWiLightMenu/gamesettings/%s.ini", (ms().secondaryDevice ? "fat:" : "sd:"), flatBaseName(filename).data());
 	CIniFile pergameini( pergamefilepath );
 	perGameSettings_dsiMode = pergameini.GetInt("GAMESETTINGS", "DSI_MODE", (isModernHomebrew[CURPOS] ? true : -1));
 	if (perGameSettings_dsiMode == -1) {
@@ -542,11 +543,11 @@ static void checkSaves(std::string filenameForInfo, u32 totalRomSize, u32 pubSiz
 	for (int i = 0; i < 10; i++) {
 		perGameSettings_saveNo = i;
 		if (isDSiWare[CURPOS] && !savFormat) {
-			std::string path("saves/" + filenameForInfo.substr(0, filenameForInfo.find_last_of('.')));
+			std::string path(flatCompanionPathNoExt(filenameForInfo, "saves"));
 			savExists[i] = access((path + getPubExtension()).c_str(), F_OK) == 0 || access((path + getPrvExtension()).c_str(), F_OK) == 0;
 			continue;
 		}
-		std::string path("saves/" + filenameForInfo.substr(0, filenameForInfo.find_last_of('.')) + getSavExtension());
+		std::string path(flatCompanionPathNoExt(filenameForInfo, "saves") + getSavExtension());
 		savExists[i] = access(path.c_str(), F_OK) == 0;
 	}
 	perGameSettings_saveNo = saveNoBak;
@@ -900,7 +901,7 @@ void perGameSettings (std::string filename, bool* dsiBinariesFound, bool* dsiBin
 		snprintf (gameTIDText, sizeof(gameTIDText), gameTid[CURPOS][0]==0 ? "" : "TID: %s", gameTid[CURPOS]);
 
 		for (int i = 0; i < 10; i++) {
-			std::string path("ramdisks/" + filenameForInfo.substr(0, filenameForInfo.find_last_of('.')) + getImgExtension(i));
+			std::string path(flatCompanionPathNoExt(filenameForInfo, "ramdisks") + getImgExtension(i));
 			if (i > 0)
 				path += std::to_string(i);
 			savExists[i] = access(path.c_str(), F_OK) == 0;

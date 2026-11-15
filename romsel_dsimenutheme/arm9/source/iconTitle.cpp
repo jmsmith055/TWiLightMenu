@@ -49,6 +49,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <vector>
+#include "flatRomList.h"
 
 #define ICON_POS_X 112
 #define ICON_POS_Y 96
@@ -310,10 +311,10 @@ void getGameInfo(bool isDir, const char *name, int num, bool fromArgv) {
 		bool customIconIsPng = false;
 		bool customIconFound = false;
 		if (ms().showCustomIcons) {
-			snprintf(customIconPath, sizeof(customIconPath), "%s:/_nds/TWiLightMenu/icons/%s.bin", sys().isRunFromSD() ? "sd" : "fat", name);
+			snprintf(customIconPath, sizeof(customIconPath), "%s:/_nds/TWiLightMenu/icons/%s.bin", sys().isRunFromSD() ? "sd" : "fat", flatBaseName(name).data());
 			customIconFound = (access(customIconPath, F_OK) == 0);
 			if (!customIconFound) {
-				snprintf(customIconPath, sizeof(customIconPath), "%s:/_nds/TWiLightMenu/icons/%s.png", sys().isRunFromSD() ? "sd" : "fat", name);
+				snprintf(customIconPath, sizeof(customIconPath), "%s:/_nds/TWiLightMenu/icons/%s.png", sys().isRunFromSD() ? "sd" : "fat", flatBaseName(name).data());
 				customIconFound = (access(customIconPath, F_OK) == 0);
 				customIconIsPng = customIconFound;
 			}
@@ -782,6 +783,14 @@ void getGameInfo(bool isDir, const char *name, int num, bool fromArgv) {
 				std::string romFolderNoSlash = ms().romfolder[ms().secondaryDevice];
 				RemoveTrailingSlashes(romFolderNoSlash);
 
+				// In the flat list the name includes the game's folder below the ROM folder
+				const std::string_view gameFolder = flatDirPrefix(filename);
+				if (!gameFolder.empty()) {
+					romFolderNoSlash += '/';
+					romFolderNoSlash += gameFolder.substr(0, gameFolder.size() - 1);
+					filename = std::string(flatBaseName(filename));
+				}
+
 				std::string typeToReplace = filename.substr(filename.rfind('.'));
 
 				bnrPath = romFolderNoSlash + "/saves/" + filename;
@@ -1145,11 +1154,12 @@ void titleUpdate(bool isDir, std::string_view name, int num) {
 		if (theme_showdialogbox) {
 			infoFound[num] ? writeDialogTitle(cachedTitle[num]) : writeDialogTitle(u"???");
 		} else {
+			const std::string_view fileName = flatBaseName(name);
 			if ((ms().filenameDisplay == 0) && !infoFound[num]) {
-				std::string_view nameSubstr = name.substr(0, name.rfind('.'));
+				std::string_view nameSubstr = fileName.substr(0, fileName.rfind('.'));
 				writeBannerText(nameSubstr, nameSubstr);
 			} else {
-				infoFound[num] ? writeBannerText(name, cachedTitle[num]) : writeBannerText(name, name);
+				infoFound[num] ? writeBannerText(fileName, cachedTitle[num]) : writeBannerText(fileName, fileName);
 			}
 		}
 	}

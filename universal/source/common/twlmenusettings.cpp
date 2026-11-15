@@ -70,6 +70,8 @@ TWLSettings::TWLSettings()
 	sortMethod = ESortAlphabetical;
 	hideEmptyBoxes = false;
 	showDirectories = true;
+	flatRomList = false;
+	slot1CartInList = true;
 	showHidden = false;
 	showPhoto = true;
 	showBoxArt = 1;
@@ -264,6 +266,8 @@ void TWLSettings::loadSettings()
 	sortMethod = (TSortMethod)settingsini.GetInt("SRLOADER", "SORT_METHOD", sortMethod);
 	hideEmptyBoxes = settingsini.GetInt("SRLOADER", "HIDE_EMPTY_BOXES", hideEmptyBoxes);
 	showDirectories = settingsini.GetInt("SRLOADER", "SHOW_DIRECTORIES", showDirectories);
+	flatRomList = settingsini.GetInt("SRLOADER", "FLAT_ROM_LIST", flatRomList);
+	slot1CartInList = settingsini.GetInt("SRLOADER", "SLOT1_CART_IN_LIST", slot1CartInList);
 	showHidden = settingsini.GetInt("SRLOADER", "SHOW_HIDDEN", showHidden);
 	showPhoto = settingsini.GetInt("SRLOADER", "SHOW_PHOTO", showPhoto);
 	showBoxArt = settingsini.GetInt("SRLOADER", "SHOW_BOX_ART", showBoxArt);
@@ -453,6 +457,8 @@ void TWLSettings::saveSettings()
 	settingsini.SetInt("SRLOADER", "SORT_METHOD", sortMethod);
 	settingsini.SetInt("SRLOADER", "HIDE_EMPTY_BOXES", hideEmptyBoxes);
 	settingsini.SetInt("SRLOADER", "SHOW_DIRECTORIES", showDirectories);
+	settingsini.SetInt("SRLOADER", "FLAT_ROM_LIST", flatRomList);
+	settingsini.SetInt("SRLOADER", "SLOT1_CART_IN_LIST", slot1CartInList);
 	settingsini.SetInt("SRLOADER", "SHOW_HIDDEN", showHidden);
 	settingsini.SetInt("SRLOADER", "SHOW_PHOTO", showPhoto);
 	settingsini.SetInt("SRLOADER", "SHOW_BOX_ART", showBoxArt);

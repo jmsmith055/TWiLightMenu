@@ -27,6 +27,8 @@
 #include "iconTitle.h"
 #include "ndsheaderbanner.h"
 #include "perGameSettings.h"
+#include "flatRomList.h"
+#include "slot1Cart.h"
 #include "incompatibleGameMap.h"
 #include "compatibleDSiWareMap.h"
 #include "gbaswitch.h"
@@ -227,6 +229,13 @@ void recalculateBoxesCount() {
 		last_used_box = 39;
 }
 
+// Orders entries by file name, then by the rest of the path. In the flat list this keeps
+// games sorted by name instead of grouped by folder; elsewhere it's a plain name compare.
+static int compareEntryNames(const DirEntry &lhs, const DirEntry &rhs) {
+	const int cmp = strcasecmp(flatBaseName(lhs.name).data(), flatBaseName(rhs.name).data());
+	return cmp != 0 ? cmp : strcasecmp(lhs.name.c_str(), rhs.name.c_str());
+}
+
 bool dirEntryPredicate(const DirEntry &lhs, const DirEntry &rhs) {
 	if (lhs.isDirectory && !lhs.customPos && !rhs.isDirectory) {
 		return true;
@@ -241,7 +250,7 @@ bool dirEntryPredicate(const DirEntry &lhs, const DirEntry &rhs) {
 		if (lhs.position < rhs.position)	return true;
 		else return false;
 	}
-	return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
+	return compareEntryNames(lhs, rhs) < 0;
 }
 
 void updateDirectoryContents(vector<DirEntry> &dirContents) {
@@ -277,13 +286,132 @@ void updateDirectoryContents(vector<DirEntry> &dirContents) {
 	pageLoaded[PAGENUM] = true;
 }
 
+// Most entries one list can hold.
+static int maxListEntries(void) {
+	return (dsiFeatures() || sys().dsDebugRam()) ? 1024 : 512;
+}
+
+// FAT attributes of the entry the next readdir(pdir) call will return.
+// This has to be read *before* readdir, since readdir advances the internal
+// DIR_ENTRY to the next entry. It's equivalent to FAT_getAttr(pent->d_name), but
+// much quicker since the filesystem doesn't have to be searched for the name.
+static int peekNextEntryAttrs(DIR *pdir) {
+	// It's *very* heavily dependant on internal libfat structs being exactly as they are now.
+	static_assert(_LIBFAT_MAJOR_ == 1 && _LIBFAT_MINOR_ == 1 && _LIBFAT_PATCH_ == 5, "libfat updated! Check that this is still correct");
+
+	// state->currentEntry.entryData[DIR_ENTRY_attributes]
+	u8 *state = (u8 *)pdir->dirData->dirStruct;
+	return state[4 + 0xB];
+}
+
+// Checks a file whose name already matched the extension list. "path" opens it from
+// the current directory and "name" is its file name without any folder.
+static bool isListableFile(const char *path, const char *name) {
+	if (extension(name, {".md"})) {
+		FILE* mdFile = fopen(path, "rb");
+		if (mdFile) {
+			u8 segaEntryPointReversed[4] = {0};
+			u8 segaEntryPointU8[4] = {0};
+			u32 segaEntryPoint = 0;
+			fseek(mdFile, 4, SEEK_SET);
+			fread(&segaEntryPointReversed, 1, 4, mdFile);
+			for (int i = 0; i < 4; i++) {
+				segaEntryPointU8[3-i] = segaEntryPointReversed[i];
+			}
+			tonccpy(&segaEntryPoint, segaEntryPointU8, 4);
+
+			char segaString[5] = {0};
+			fseek(mdFile, 0x100, SEEK_SET);
+			fread(segaString, 1, 4, mdFile);
+			fclose(mdFile);
+
+			if (!((segaEntryPointReversed[0] == 0) && ((strcmp(segaString, "SEGA") == 0) || ((segaEntryPoint >= 8) && (segaEntryPoint < 0x3FFFFF))))) {
+				// Invalid string or entry point found
+				return false;
+			}
+		}
+	} else if (!ms().macroMode && extension(name, {"_bot.gif", "_bot.bmp", "_bot.png"})) {
+		// Do not show bottom screen images seperately if macro mode is turned off
+		return false;
+	}
+	return true;
+}
+
+// How deep below the root the flat list looks for games ("root/a/b/c/game.nds").
+static constexpr int FLAT_LIST_MAX_DEPTH = 3;
+
+// Folders the flat list never looks inside: TWiLight Menu++ and system data, saves,
+// and the console/CFW folders found on DSi and 3DS SD cards.
+static bool isFlatListSkippedFolder(const char *name) {
+	if (name[0] == '.' || name[0] == '_') // ".", "..", hidden folders, "_nds" and other app data
+		return true;
+
+	static const char *const skipped[] = {
+		"saves", "ramdisks", "System Volume Information",
+		"Nintendo 3DS", "DCIM", "luma", "3ds", "gm9", "cias",
+		"title", "ticket", "shared1", "shared2", "sys", "tmp", "import", "progress", "photo", "private",
+	};
+	for (const char *skip : skipped) {
+		if (strcasecmp(name, skip) == 0)
+			return true;
+	}
+	return false;
+}
+
+// Adds every listable file in "folder" (relative to the current directory, "" for
+// the current directory itself, otherwise ending in '/') and in its subfolders.
+// Names are added with their folder, e.g. "Pokemon/game.nds".
+static void scanFlatFolder(std::vector<DirEntry> &dirContents, const std::vector<std::string_view> &extensionList, const std::string &folder, int depth) {
+	DIR *pdir = opendir(folder.empty() ? "." : folder.substr(0, folder.size() - 1).c_str());
+	if (pdir == nullptr)
+		return;
+
+	std::vector<std::string> subfolders;
+	while (1) {
+		bgOperations(false);
+
+		const int attrs = ms().showHidden ? 0 : peekNextEntryAttrs(pdir);
+		dirent *pent = readdir(pdir);
+		if (pent == nullptr || file_count >= maxListEntries())
+			break;
+
+		if (!ms().showHidden && ((attrs & ATTR_HIDDEN) || pent->d_name[0] == '.'))
+			continue;
+
+		if (pent->d_type == DT_DIR) {
+			if (depth < FLAT_LIST_MAX_DEPTH && !isFlatListSkippedFolder(pent->d_name))
+				subfolders.push_back(folder + pent->d_name + "/");
+			continue;
+		}
+
+		if (!nameEndsWith(pent->d_name, extensionList))
+			continue;
+
+		std::string path = folder + pent->d_name;
+		if (!isListableFile(path.c_str(), pent->d_name))
+			continue;
+
+		logPrint("File listed: %s\n", path.c_str());
+		dirContents.emplace_back(std::move(path), false, file_count, false);
+		file_count++;
+	}
+	// Close this folder before opening its subfolders, so only one is open at a time.
+	closedir(pdir);
+
+	for (const std::string &subfolder : subfolders) {
+		if (file_count >= maxListEntries())
+			break;
+		scanFlatFolder(dirContents, extensionList, subfolder, depth + 1);
+	}
+}
+
 void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<std::string_view> extensionList = {}) {
 	dirContents.clear();
 
 	file_count = 0;
 	fileStartPos = 0;
 
-	if (access("dirInfo.twlm.ini", F_OK) == 0) {
+	if (!ms().flatRomList && access("dirInfo.twlm.ini", F_OK) == 0) {
 		dirInfoIniFound = true;
 
 		for (int i = 0; i < (int)sizeof(pageLoaded); i++) {
@@ -305,27 +433,16 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 	} else {
 		backFound = false;
 		int backPos = 0;
-		while (1) {
+		if (ms().flatRomList) {
+			scanFlatFolder(dirContents, extensionList, "", 0);
+			logPrint("End of flat listing, Sorting: ");
+		} else while (1) {
 			bgOperations(false);
 
-			// This has to be done *before* readdir, since readdir increments
-			// the internal state's DIR_ENTRY for the next time
-			int attrs = 0;
-			if (!ms().showHidden) {
-				// Get FAT attrs, this is equivalent to FAT_getAttr(pent->d_name)
-				// but much quicker since we don't have to search the filesystem
-				// for the name.
-				// It's also *very* heavily dependant on internal libfat structs
-				// being exactly as they are now.
-				static_assert(_LIBFAT_MAJOR_ == 1 && _LIBFAT_MINOR_ == 1 && _LIBFAT_PATCH_ == 5, "libfat updated! Check that this is still correct");
-
-				// state->currentEntry.entryData[DIR_ENTRY_attributes]
-				u8 *state = (u8 *)pdir->dirData->dirStruct;
-				attrs = state[4 + 0xB];
-			}
+			const int attrs = ms().showHidden ? 0 : peekNextEntryAttrs(pdir);
 
 			dirent *pent = readdir(pdir);
-			if (pent == nullptr || file_count > ((dsiFeatures() || sys().dsDebugRam()) ? 1024 : 512)) {
+			if (pent == nullptr || file_count > maxListEntries()) {
 				logPrint("End of listing, Sorting: ");
 				break;
 			}
@@ -350,34 +467,8 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 				emplaceBackDirContent = (pent->d_type != DT_DIR && nameEndsWith(pent->d_name, extensionList));
 			}
 			if (emplaceBackDirContent) {
-				if (pent->d_type != DT_DIR) {
-					if (extension(pent->d_name, {".md"})) {
-						FILE* mdFile = fopen(pent->d_name, "rb");
-						if (mdFile) {
-							u8 segaEntryPointReversed[4] = {0};
-							u8 segaEntryPointU8[4] = {0};
-							u32 segaEntryPoint = 0;
-							fseek(mdFile, 4, SEEK_SET);
-							fread(&segaEntryPointReversed, 1, 4, mdFile);
-							for (int i = 0; i < 4; i++) {
-								segaEntryPointU8[3-i] = segaEntryPointReversed[i];
-							}
-							tonccpy(&segaEntryPoint, segaEntryPointU8, 4);
-
-							char segaString[5] = {0};
-							fseek(mdFile, 0x100, SEEK_SET);
-							fread(segaString, 1, 4, mdFile);
-							fclose(mdFile);
-
-							if (!((segaEntryPointReversed[0] == 0) && ((strcmp(segaString, "SEGA") == 0) || ((segaEntryPoint >= 8) && (segaEntryPoint < 0x3FFFFF))))) {
-								// Invalid string or entry point found
-								continue;
-							}
-						}
-					} else if (!ms().macroMode && extension(pent->d_name, {"_bot.gif", "_bot.bmp", "_bot.png"})) {
-						// Do not show bottom screen images seperately if macro mode is turned off
-						continue;
-					}
+				if (pent->d_type != DT_DIR && !isListableFile(pent->d_name, pent->d_name)) {
+					continue;
 				}
 				dirContents.emplace_back(pent->d_name, ms().showDirectories ? (pent->d_type == DT_DIR) : false, file_count, false);
 				logPrint("%s listed: %s\n", (pent->d_type == DT_DIR) ? "Directory" : "File", pent->d_name);
@@ -429,7 +520,7 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 					else if (lhs.position < rhs.position)
 						return false;
 					else
-						return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
+						return compareEntryNames(lhs, rhs) < 0;
 				});
 			logPrint("Most Played");
 		} else if (ms().sortMethod == TWLSettings::ESortFileType) { // File type
@@ -441,7 +532,7 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 
 					int extCmp = strcasecmp(lhs.name.substr(lhs.name.find_last_of('.') + 1).c_str(), rhs.name.substr(rhs.name.find_last_of('.') + 1).c_str());
 					if (extCmp == 0)
-						return strcasecmp(lhs.name.c_str(), rhs.name.c_str()) < 0;
+						return compareEntryNames(lhs, rhs) < 0;
 					else
 						return extCmp < 0;
 				});
@@ -465,6 +556,12 @@ void getDirectoryContents(std::vector<DirEntry> &dirContents, const std::vector<
 			logPrint("Custom");
 		}
 		logPrint("\n\n");
+		if (slot1CartPrepare()) {
+			// The inserted game card goes first, after ".." when that's shown
+			dirContents.insert(dirContents.begin(), {slot1CartPath(), false, -1, false});
+			file_count++;
+			recalculateBoxesCount();
+		}
 		if (backFound) {
 			dirContents.insert(dirContents.begin(), {"..", true, backPos, false});
 		}
@@ -2870,6 +2967,15 @@ void getFileInfo(SwitchState scrn, vector<vector<DirEntry>> dirContents, bool re
 			} else {
 				bnrRomType[i] = launcherRomType(std_romsel_filename);
 
+				if (isSlot1CartEntry(std_romsel_filename)) {
+					isValid[i] = true;
+					isTwlm[i] = false;
+					isDSiWare[i] = false;
+					isHomebrew[i] = 0;
+					isModernHomebrew[i] = false;
+					requiresDonorRom[i] = 0;
+				}
+
 				if (bnrRomType[i] != 0) {
 					bnrWirelessIcon[i] = 0;
 					bnrSysSettings[i] = false;
@@ -2883,11 +2989,11 @@ void getFileInfo(SwitchState scrn, vector<vector<DirEntry>> dirContents, bool re
 				if (dsiFeatures() && !ms().macroMode && ms().showBoxArt == 2 && ms().theme != TWLSettings::EThemeHBL) {
 					snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
 							 sys().isRunFromSD() ? "sd" : "fat",
-							 dirContents[scrn][i + PAGENUM * 40].name.c_str());
+							 flatBaseName(dirContents[scrn][i + PAGENUM * 40].name).data());
 					if (access(boxArtPath, F_OK) != 0) {
 						snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
 								 sys().isRunFromSD() ? "sd" : "fat",
-								 dirContents[scrn][i + PAGENUM * 40].name.c_str());
+								 flatBaseName(dirContents[scrn][i + PAGENUM * 40].name).data());
 					}
 					if (!isDirectory[i] && (bnrRomType[i] == 0) && (access(boxArtPath, F_OK) != 0)) {
 						if (access(boxArtPath, F_OK) != 0) {
@@ -3223,7 +3329,7 @@ static bool nextPage(SwitchState scrn, vector<vector<DirEntry>> dirContents) {
 // Opens a message box prompt to set/clear the default directory.
 bool setDefaultDirectory(std::string_view directory_path)
 {
-	if (ms().kioskMode || !ms().showDirectories)
+	if (ms().kioskMode || !ms().showDirectories || ms().flatRomList)
 		return false;
 
 	if (ms().theme == TWLSettings::EThemeSaturn) {
@@ -3361,6 +3467,17 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 	SwitchState scrn(3);
 	vector<vector<DirEntry>> dirContents(scrn.SIZE);
 
+	if (ms().flatRomList) {
+		// List from the default folder if one is set, otherwise from the root of the card.
+		// Launching a game changes into its folder (see below), so go back to the root here.
+		const std::string &defaultFolder = ms().defaultRomfolder[ms().secondaryDevice];
+		if (defaultFolder.empty() || defaultFolder == "null" || chdir(defaultFolder.c_str()) != 0) {
+			chdir(ms().secondaryDevice ? "fat:/" : "sd:/");
+		}
+		char buf[256];
+		ms().romfolder[ms().secondaryDevice] = std::string(getcwd(buf, 256));
+	}
+
 	getDirectoryContents(dirContents[scrn], extensionList);
 	const int parentPosition = parentSelection.restore(dirContents[scrn]);
 	if (parentPosition >= 0) {
@@ -3470,7 +3587,7 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 
 				boxArtFound = ((CURPOS + PAGENUM * 40) < ((int)dirContents[scrn].size()));
 				if (boxArtFound) {
-					boxArtFilename = dirContents[scrn].at(CURPOS + PAGENUM * 40).name.c_str();
+					boxArtFilename = flatBaseName(dirContents[scrn].at(CURPOS + PAGENUM * 40).name).data();
 				}
 				updateBoxArt();
 				if (ms().theme < 4) {
@@ -3550,10 +3667,39 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				buttonArrowTouched[0] = ((keysHeld() & KEY_TOUCH) && touch.py > 171 && touch.px < 19);
 				buttonArrowTouched[1] = ((keysHeld() & KEY_TOUCH) && touch.py > 171 && touch.px > 236);
 				bgOperations(true);
-				/*if (REG_SCFG_MC != current_SCFG_MC) {
+				if (slot1CartChanged()) {
 					break;
-				}*/
+				}
 			} while (!held);
+
+			if (slot1CartChanged()) {
+				// A game card was inserted or taken out: reload the list, with the cursor on the first game
+				if (ms().theme != TWLSettings::EThemeSaturn && ms().theme != TWLSettings::EThemeHBL) {
+					fadeType = false; // Fade to white
+					for (int i = 0; i < 6; i++) {
+						bgOperations(true);
+					}
+				}
+				PAGENUM = 0;
+				CURPOS = 0;
+				titleboxXdest[ms().secondaryDevice] = 0;
+				titlewindowXdest[ms().secondaryDevice] = 0;
+				titleboxXpos[ms().secondaryDevice] = titleboxXdest[ms().secondaryDevice];
+				titlewindowXpos[ms().secondaryDevice] = titlewindowXdest[ms().secondaryDevice];
+				if (ms().theme != TWLSettings::EThemeSaturn && ms().theme != TWLSettings::EThemeHBL) whiteScreen = true;
+				if (ms().showBoxArt)
+					clearBoxArt(); // Clear box art
+				boxArtLoaded = false;
+				bannerTextShown = false;
+				resumeRotatingCubesVideo();
+				shouldersRendered = false;
+				currentBg = 0;
+				showSTARTborder = false;
+				stopSoundPlayed = false;
+				clearText();
+				updateText(false);
+				return "null";
+			}
 
 			buttonArrowTouched[0] = ((keysHeld() & KEY_TOUCH) && touch.py > 171 && touch.px < 19);
 			buttonArrowTouched[1] = ((keysHeld() & KEY_TOUCH) && touch.py > 171 && touch.px > 236);
@@ -3995,6 +4141,10 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 			if ((((pressed & KEY_A) || (pressed & KEY_START) || (ms().theme == TWLSettings::ETheme3DS && (pressed & KEY_TOUCH) && touch.py > 171)) && bannerTextShown && showSTARTborder) || gameTapped) {
 				bannerTextShown = false; // Redraw title when done
 				DirEntry *entry = &dirContents[scrn].at(CURPOS + PAGENUM * 40);
+				if (isSlot1CartEntry(entry->name)) {
+					switchDevice();
+					return "null";
+				}
 				if (entry->isDirectory) {
 					// Enter selected directory
 					if (chdir(entry->name.c_str()) != 0) {
@@ -4377,6 +4527,15 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 						}
 
 						// Return the chosen file
+						if (ms().flatRomList) {
+							const std::string_view folder = flatDirPrefix(entry->name);
+							if (!folder.empty()) {
+								chdir(std::string(folder).c_str());
+								char buf[256];
+								ms().romfolder[ms().secondaryDevice] = std::string(getcwd(buf, 256));
+							}
+							return std::string(flatBaseName(entry->name));
+						}
 						return entry->name;
 					}
 				}
@@ -4492,7 +4651,7 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				}
 			}
 
-			if ((pressed & KEY_B) && ms().showDirectories) {
+			if ((pressed & KEY_B) && ms().showDirectories && !ms().flatRomList) {
 				// Go up a directory
 				if (chdir("..") != 0) {
 					snd().playWrong();
@@ -4534,7 +4693,7 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 
 			// (un)Hide file/folder
 			if ((pressed & KEY_X) && !ms().kioskMode && !ms().preventDeletion && bannerTextShown && showSTARTborder
-			&& dirContents[scrn].at(CURPOS + PAGENUM * 40).name != "..") {
+			&& dirContents[scrn].at(CURPOS + PAGENUM * 40).name != ".." && !isSlot1CartEntry(dirContents[scrn].at(CURPOS + PAGENUM * 40).name)) {
 				DirEntry *entry = &dirContents[scrn].at((PAGENUM * 40) + (CURPOS));
 				bool unHide = (FAT_getAttr(entry->name.c_str()) & ATTR_HIDDEN || (strncmp(entry->name.c_str(), ".", 1) == 0 && entry->name != ".."));
 				if (ms().theme == TWLSettings::EThemeSaturn) {
@@ -4621,9 +4780,9 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 							   .name.c_str();
 						remove(fileNameChar); // Remove game/folder
 						if (!ms().macroMode && strlen(fileNameChar) >= 6 && extension(fileNameChar, {".gif", ".bmp", ".png"})) {
-							char fileNameCharBottom[128] = {0};
-							char fileNameChar_noExt[128] = {0};
-							sprintf(fileNameChar_noExt, fileNameChar);
+							char fileNameCharBottom[PATH_MAX] = {0};
+							char fileNameChar_noExt[PATH_MAX] = {0};
+							snprintf(fileNameChar_noExt, sizeof(fileNameChar_noExt), "%s", fileNameChar);
 							for (int i = strlen(fileNameChar); i >= 0; i--) {
 								if (fileNameChar_noExt[i] == '.') {
 									fileNameChar_noExt[i] = 0;
@@ -4632,11 +4791,11 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 							}
 
 							if (extension(fileNameChar, {".gif"})) {
-								sprintf(fileNameCharBottom, "%s_bot.gif", fileNameChar_noExt);
+								snprintf(fileNameCharBottom, sizeof(fileNameCharBottom), "%s_bot.gif", fileNameChar_noExt);
 							} else if (extension(fileNameChar, {".bmp"})) {
-								sprintf(fileNameCharBottom, "%s_bot.bmp", fileNameChar_noExt);
+								snprintf(fileNameCharBottom, sizeof(fileNameCharBottom), "%s_bot.bmp", fileNameChar_noExt);
 							} else if (extension(fileNameChar, {".png"})) {
-								sprintf(fileNameCharBottom, "%s_bot.png", fileNameChar_noExt);
+								snprintf(fileNameCharBottom, sizeof(fileNameCharBottom), "%s_bot.png", fileNameChar_noExt);
 							}
 
 							if (access(fileNameCharBottom, F_OK) == 0) {
@@ -4724,7 +4883,8 @@ std::string browseForFile(const std::vector<std::string_view> extensionList) {
 				bannerTextShown = false;
 			}
 
-			if ((pressed & KEY_Y) && !ms().kioskMode && isValid[CURPOS] && !isTwlm[CURPOS] && !isDirectory[CURPOS] && bannerTextShown && showSTARTborder) {
+			if ((pressed & KEY_Y) && !ms().kioskMode && isValid[CURPOS] && !isTwlm[CURPOS] && !isDirectory[CURPOS] && bannerTextShown && showSTARTborder
+			 && !isSlot1CartEntry(dirContents[scrn].at(CURPOS + PAGENUM * 40).name)) {
 				perGameSettings(dirContents[scrn].at(CURPOS + PAGENUM * 40).name, &hasDsiBinaries, &dsiBinariesChecked);
 				bannerTextShown = false;
 			}
