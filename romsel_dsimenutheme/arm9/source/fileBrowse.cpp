@@ -2765,7 +2765,7 @@ bool selectMenu(void) {
 					} else {
 						printSmall(false, textXpos, textYpos, STR_SWITCH_TO_SLOT_1, align, pal);
 					}
-				} else if ((isDSiMode() && !flashcardFound()) || (io_dldi_data->ioInterface.features & FEATURE_SLOT_GBA)) {
+				} else if (!flashcardFound() || (io_dldi_data->ioInterface.features & FEATURE_SLOT_GBA)) {
 					printSmall(false, textXpos, textYpos, (REG_SCFG_MC == 0x11) ? STR_NO_SLOT_1 : STR_LAUNCH_SLOT_1, align, pal);
 				}
 			} else if (assignedOp[i] == 3) {
