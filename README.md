@@ -17,6 +17,16 @@
 **TW**i**L**ight Menu++ is an open-source DSi Menu upgrade/replacement for the Nintendo DSi, the Nintendo 3DS, and Nintendo DS flashcards.
 It can launch games for the Nintendo DS, Nintendo DSi, and GameBoy Advance, as well as DSTWO plugins (if you use a DSTWO).
 
+# Kid-friendly DSi menu (this fork)
+
+This fork adds settings that make the Nintendo DSi, 3DS, SEGA Saturn and Homebrew Launcher UIs easier for young children. They're on the GUI page of the Settings app:
+
+- **All games in one list:** every game in the default folder and its subfolders, in one list with no folders to open.
+- **Game card in list:** the inserted game card is the first entry, and it disappears when the card is taken out.
+- **DSi apps in list:** the DSi's built-in apps and DSiWare come after the game card (needs Unlaunch).
+
+It also adds `make package-dsi`, which builds only the files a DSi needs. See [docs/kid-friendly-dsi-menu.md](docs/kid-friendly-dsi-menu.md) for setup, requirements and details.
+
 # Add-ons
 
 Additional features can be added on to **TW**i**L**ight Menu++. See [this page](https://wiki.ds-homebrew.com/twilightmenu/installing-addons) for more information.
@@ -48,11 +58,15 @@ Once you have devkitPro's toolchains installed you can build the entirety of TWi
 
 Once it finishes building, the output files will be in the `7zfile` folder following the same directory structure as the official `TWiLightMenu.7z` builds.
 
+To build only what a Nintendo DSi needs, run `make package-dsi` after `make package`. The files to copy to the root of the SD card will be in `dsi-package/TWiLightMenu-DSi/`, and there will also be a `dsi-package/TWiLightMenu-DSi.7z`. Add `NDS_BOOTSTRAP=1` to also download the latest nds-bootstrap.
+
 ## Using Docker
 
 Using the included [Docker](https://docker.com) image, you can easily compile TWiLight Menu++ without having to manually set up the required version of devkitARM using the provided PowerShell (`.ps1`) scripts.
 
-The script accepts `make` arguments as well. For example, `.\compile_docker.ps1 clean` will clean the directories of all the compiled code. If you would like to build all artifacts, run `.\compile_docker.ps1 package`.
+The script accepts `make` arguments as well. For example, `.\compile_docker.ps1 clean` will clean the directories of all the compiled code. If you would like to build all artifacts, run `.\compile_docker.ps1 package`. On Linux and macOS, use `./compile_docker.sh` the same way.
+
+The scripts check that Docker is running, rebuild the image when the `Dockerfile` changes, and return `make`'s exit code.
 
 Please note that Docker compilation is not compatible with native compilation on Windows. You should run `.\compile_docker.ps1 clean` to clean the artifacts before attempting to build with Docker. If a notification appears asking you to share your drive, you must choose to enable drive sharing for Docker to work on Windows.
 
