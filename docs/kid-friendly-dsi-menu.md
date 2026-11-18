@@ -85,6 +85,20 @@ This needs a retail DSi (not a 3DS or a development console) with Unlaunch insta
 - **SELECT menu label:** in DS mode with SCFG enabled and no flashcard, the SELECT menu's Slot-1/SD entry could be selected but had no text. Its label is now drawn there too.
 - **Deleting box art images:** file names are no longer used as `sprintf` format strings, and the paths are limited to `PATH_MAX`.
 
+### Fixes for open TWiLight Menu++ issues
+
+| Issue | Problem | Fix |
+| --- | --- | --- |
+| [#2218](https://github.com/DS-Homebrew/TWiLightMenu/issues/2218) | With thousands of box art images, each game could take seconds to show its box art, and a folder could take minutes to open in cached mode. Each game checked up to 4–6 file names, and each check searched the whole `boxart` folder. | The folder's file names are read once per menu start and kept as 4-byte hashes (`boxArtLookup.cpp`). A missing name now costs nothing, and an image that exists is opened only once. DSi, 3DS, Saturn and Homebrew Launcher UIs. |
+| [#2674](https://github.com/DS-Homebrew/TWiLightMenu/issues/2674) | PNG custom icons could get transparent patches when a colour filter was on. The palette was colour-converted again after every pixel, so later pixels stopped matching it, filled all 16 slots, and were dropped. | The palette is converted once, after the whole icon is read. DSi-style and Wood UIs. |
+| [#1415](https://github.com/DS-Homebrew/TWiLightMenu/issues/1415) | **L** put the cursor on the first game of the previous page. | It now goes to that page's last game, so paging back continues from where you were. |
+| [#2031](https://github.com/DS-Homebrew/TWiLightMenu/issues/2031) | New DSiWare saves could freeze some games (*Solitaire DSi*) or fail to save (*Castle Conqueror: Against*). The save's FAT12 tables were left blank, without the reserved entries a valid FAT starts with, and the FAT size left those entries out. | Both FATs now start with the media byte and end-of-chain entries, and are sized to include them. Applies to all UIs. Saves that were already created this way aren't changed: delete them to have a new one made. |
+
+Other speed and safety fixes found along the way:
+
+- **L** and **R** no longer copy the whole game list on every page switch.
+- Box art that can't be opened or decoded is skipped instead of being read from a closed file or an unknown size.
+
 ## Building
 
 ### Docker
@@ -131,6 +145,7 @@ To update only the menu on a card that's already set up, copy `_nds/TWiLightMenu
 | `romsel_dsimenutheme/arm9/source/flatRomList.h` | Helpers for the `folder/game.nds` names used in the flat list. |
 | `romsel_dsimenutheme/arm9/source/slot1Cart.cpp`, `.h` | Detects and reads the game card. |
 | `romsel_dsimenutheme/arm9/source/dsiApps.cpp`, `.h` | Mounts NAND and finds the DSi's apps. |
+| `romsel_dsimenutheme/arm9/source/boxArtLookup.cpp`, `.h` | Finds box art without searching the folder for each game. |
 | `romsel_dsimenutheme/arm9/source/iconTitle.cpp`, `perGameSettings.cpp` | Find icons, saves and per-game settings for games in the flat list. |
 | `universal/.../twlmenusettings.*` | The three new settings. |
 | `settings/arm9/source/main.cpp`, `language.inl` | The settings' entries in TWiLight Menu++ Settings. |
@@ -143,7 +158,8 @@ All of this builds. It hasn't been fully tested on DSi hardware yet. These still
 
 - how fast the flat list loads with a large game collection;
 - reading the game card and launching it from the list;
-- booting each built-in app and DSiWare title directly through Unlaunch.
+- booting each built-in app and DSiWare title directly through Unlaunch;
+- box art speed with a large `boxart` folder, and whether new DSiWare saves now work in *Solitaire DSi* and *Castle Conqueror: Against*.
 
 The new menu text is in English only, and it isn't on Crowdin yet.
 

@@ -1068,9 +1068,10 @@ void getGameInfo(int num, int fileOffset, bool isDir, const char* name, bool fro
 								banner.palette[colorCount++] = color;
 							}
 						}
-	
-						convertIconPalette(&banner);
 					}
+
+					// Once every pixel has been matched against the unconverted colors
+					convertIconPalette(&banner);
 				}
 			}
 		}

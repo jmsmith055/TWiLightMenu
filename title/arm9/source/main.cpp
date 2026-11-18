@@ -298,7 +298,8 @@ bool createDSiWareSave(const char *path, int size) {
 
 	#define ALIGN_TO_MULTIPLE(v, a) (((v) % (a)) ? ((v) + (a) - ((v) % (a))) : (v))
 	u16 totalClusters = ALIGN_TO_MULTIPLE(sectorCount, secPerCluster) / secPerCluster;
-	u32 fatBytes = (ALIGN_TO_MULTIPLE(totalClusters, 2) / 2) * 3; // 2 sectors -> 3 byte
+	// 12 bits per cluster, plus the two reserved entries (clusters 0 and 1)
+	u32 fatBytes = (ALIGN_TO_MULTIPLE(totalClusters + 2, 2) / 2) * 3; // 2 clusters -> 3 bytes
 	u16 fatSize = ALIGN_TO_MULTIPLE(fatBytes, sectorSize) / sectorSize;
 
 
@@ -331,6 +332,14 @@ bool createDSiWareSave(const char *path, int size) {
 	FILE *file = fopen(path, "wb");
 	if (file) {
 		fwrite(&h, sizeof(FATHeader), 1, file); // Write header
+		// Each FAT starts with the reserved entries for clusters 0 and 1: the media
+		// byte, then end-of-chain. Without them the FATs aren't valid and some
+		// DSiWare can't use the save.
+		const u8 fatStart[3] = {h.BPB_Media, 0xFF, 0xFF};
+		for (int fat = 0; fat < h.BPB_NumFATs; fat++) {
+			fseek(file, (h.BPB_RsvdSecCnt + fat * fatSize) * sectorSize, SEEK_SET);
+			fwrite(fatStart, 1, sizeof(fatStart), file);
+		}
 		fseek(file, size - 1, SEEK_SET); // Pad rest of the file
 		fputc('\0', file);
 		fclose(file);

@@ -1207,20 +1207,21 @@ void ThemeTextures::loadBoxArtToMem(const char *filename, int num) {
 		return;
 	}
 
-	extern off_t getFileSize(const char *fileName);
-	off_t filesize = getFileSize(filename);
-
-	if (filesize == 0 || filesize > 0xB000) {
-		boxArtFound[num] = false;
-		//filename = "nitro:/graphics/boxart_unknown.bmp";
-		//file = fopen(filename, "rb");
+	boxArtFound[num] = false;
+	if (!filename) // No box art for this game
 		return;
-	}
 
-	boxArtFound[num] = true;
-
+	// Open the file once; each open searches the whole box art folder.
 	FILE *file = fopen(filename, "rb");
-	fread(boxArtCache+(num*0xB000), 1, 0xB000, file);
+	if (!file)
+		return;
+	fseek(file, 0, SEEK_END);
+	const long filesize = ftell(file);
+	if (filesize > 0 && filesize <= 0xB000) {
+		fseek(file, 0, SEEK_SET);
+		fread(boxArtCache+(num*0xB000), 1, 0xB000, file);
+		boxArtFound[num] = true;
+	}
 	fclose(file);
 }
 
@@ -1230,7 +1231,9 @@ bool ThemeTextures::drawBoxArt(const char *filename, bool inMem) {
 	logPrint("filename: ");
 	logPrint(filename);
 
-	if (inMem ? !boxArtFound[CURPOS] : access(filename, F_OK) != 0) {
+	// Not checked with access() when reading from the card: the caller has looked the
+	// file up already, and each check searches the whole box art folder.
+	if (inMem && !boxArtFound[CURPOS]) {
 		logPrint(" not found\n");
 		return false;
 	}
@@ -1246,6 +1249,10 @@ bool ThemeTextures::drawBoxArtBmp(const char *filename, bool inMem) {
 	logPrint("drawBoxArtBmp\n");
 
 	FILE* file = inMem ? NULL : fopen(filename, "rb");
+	if (!inMem && !file) {
+		logPrint("Could not open\n");
+		return false;
+	}
 
 	uint imageXpos, imageYpos;
 	u8* fileMem = inMem ? boxArtCache+(CURPOS*0xB000) : NULL;
@@ -1475,12 +1482,17 @@ bool ThemeTextures::drawBoxArtPng(const char *filename, bool inMem) {
 	logPrint("drawBoxArtPng\n");
 
 	std::vector<unsigned char> image;
-	uint imageWidth, imageHeight;
+	uint imageWidth = 0, imageHeight = 0;
 	uint imageXpos, imageYpos;
+	unsigned error;
 	if (inMem) {
-		lodepng::decode(image, imageWidth, imageHeight, (unsigned char*)boxArtCache+(CURPOS*0xB000), 0xB000);
+		error = lodepng::decode(image, imageWidth, imageHeight, (unsigned char*)boxArtCache+(CURPOS*0xB000), 0xB000);
 	} else {
-		lodepng::decode(image, imageWidth, imageHeight, filename);
+		error = lodepng::decode(image, imageWidth, imageHeight, filename);
+	}
+	if (error) {
+		logPrint("Could not decode\n");
+		return false;
 	}
 	bool alternatePixel = false;
 	bool alternatePixel2 = false;

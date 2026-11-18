@@ -416,9 +416,10 @@ void getGameInfo(bool isDir, const char *name, int num, bool fromArgv) {
 								banner.palette[colorCount++] = color;
 							}
 						}
-	
-						convertIconPalette(&banner);
 					}
+
+					// Once every pixel has been matched against the unconverted colors
+					convertIconPalette(&banner);
 				}
 			}
 		}

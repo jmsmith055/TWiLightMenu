@@ -28,6 +28,7 @@
 #include "ndsheaderbanner.h"
 #include "perGameSettings.h"
 #include "flatRomList.h"
+#include "boxArtLookup.h"
 #include "slot1Cart.h"
 #include "dsiApps.h"
 #include "incompatibleGameMap.h"
@@ -816,19 +817,9 @@ void updateBoxArt(void) {
 		clearBoxArt();
 	}
 
-	sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.bmp", sys().isRunFromSD() ? "sd" : "fat", boxArtFilename);
-	if (access(boxArtPath, F_OK) != 0) {
-		sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.png", sys().isRunFromSD() ? "sd" : "fat", boxArtFilename);
-	}
-	if (!isDirectory[CURPOS] && (bnrRomType[CURPOS] == 0)) {
-		if (access(boxArtPath, F_OK) != 0) {
-			sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.bmp", sys().isRunFromSD() ? "sd" : "fat", gameTid[CURPOS]);
-		}
-		if (access(boxArtPath, F_OK) != 0) {
-			sprintf(boxArtPath, "%s:/_nds/TWiLightMenu/boxart/%s.png", sys().isRunFromSD() ? "sd" : "fat", gameTid[CURPOS]);
-		}
-	}
-	if (!tex().drawBoxArt(boxArtPath, (dsiFeatures() && ms().showBoxArt == 2))) { // Load box art
+	const bool found = findBoxArt(boxArtPath, sizeof(boxArtPath), boxArtFilename,
+		(!isDirectory[CURPOS] && bnrRomType[CURPOS] == 0) ? gameTid[CURPOS] : nullptr);
+	if (!found || !tex().drawBoxArt(boxArtPath, (dsiFeatures() && ms().showBoxArt == 2))) { // Load box art
 		if (ms().theme == TWLSettings::ETheme3DS && !rocketVideo_topVisible) {
 			resumeRotatingCubesVideo();
 		}
@@ -2999,27 +2990,10 @@ void getFileInfo(SwitchState scrn, vector<vector<DirEntry>> dirContents, bool re
 				}
 
 				if (dsiFeatures() && !ms().macroMode && ms().showBoxArt == 2 && ms().theme != TWLSettings::EThemeHBL) {
-					snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
-							 sys().isRunFromSD() ? "sd" : "fat",
-							 flatBaseName(dirContents[scrn][i + PAGENUM * 40].name).data());
-					if (access(boxArtPath, F_OK) != 0) {
-						snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
-								 sys().isRunFromSD() ? "sd" : "fat",
-								 flatBaseName(dirContents[scrn][i + PAGENUM * 40].name).data());
-					}
-					if (!isDirectory[i] && (bnrRomType[i] == 0) && (access(boxArtPath, F_OK) != 0)) {
-						if (access(boxArtPath, F_OK) != 0) {
-							snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.bmp",
-									 (sys().isRunFromSD() ? "sd" : "fat"),
-									 gameTid[i]);
-						}
-						if (access(boxArtPath, F_OK) != 0) {
-							snprintf(boxArtPath, sizeof(boxArtPath), "%s:/_nds/TWiLightMenu/boxart/%s.png",
-									 (sys().isRunFromSD() ? "sd" : "fat"),
-									 gameTid[i]);
-						}
-					}
-					tex().loadBoxArtToMem(boxArtPath, i);
+					const bool found = findBoxArt(boxArtPath, sizeof(boxArtPath),
+						flatBaseName(dirContents[scrn][i + PAGENUM * 40].name).data(),
+						(!isDirectory[i] && bnrRomType[i] == 0) ? gameTid[i] : nullptr);
+					tex().loadBoxArtToMem(found ? boxArtPath : nullptr, i);
 				}
 			}
 			if (reSpawnBoxes)
@@ -3242,7 +3216,7 @@ static void endMoveMode(SwitchState scrn, std::vector<std::vector<DirEntry>> &di
 	titleboxXdest[ms().secondaryDevice] = titleboxXpos[ms().secondaryDevice] = CURPOS * titleboxXspacing;
 }
 
-static bool previousPage(SwitchState scrn, vector<vector<DirEntry>> dirContents) {
+static bool previousPage(SwitchState scrn, const vector<vector<DirEntry>> &dirContents) {
 	if (CURPOS == 0 && !showLshoulder) {
 		snd().playWrong();
 		return false;
@@ -3255,11 +3229,16 @@ static bool previousPage(SwitchState scrn, vector<vector<DirEntry>> dirContents)
 			bgOperations(true);
 		}
 	}
-	if (showLshoulder)
+	if (showLshoulder) {
+		// Land on the previous page's last entry, so paging back carries on from where
+		// the cursor was. Earlier pages are always full, so this is slot 39.
 		PAGENUM -= 1;
-	CURPOS = 0;
-	titleboxXdest[ms().secondaryDevice] = 0;
-	titlewindowXdest[ms().secondaryDevice] = 0;
+		CURPOS = 39;
+	} else {
+		CURPOS = 0;
+	}
+	titleboxXdest[ms().secondaryDevice] = CURPOS * titleboxXspacing;
+	titlewindowXdest[ms().secondaryDevice] = CURPOS * 5;
 	titleboxXpos[ms().secondaryDevice] = titleboxXdest[ms().secondaryDevice];
 	titlewindowXpos[ms().secondaryDevice] = titlewindowXdest[ms().secondaryDevice];
 	if (ms().theme != TWLSettings::EThemeSaturn && ms().theme != TWLSettings::EThemeHBL) whiteScreen = true;
@@ -3287,7 +3266,7 @@ static bool previousPage(SwitchState scrn, vector<vector<DirEntry>> dirContents)
 	return showLshoulder;
 }
 
-static bool nextPage(SwitchState scrn, vector<vector<DirEntry>> dirContents) {
+static bool nextPage(SwitchState scrn, const vector<vector<DirEntry>> &dirContents) {
 	if (CURPOS == (file_count - 1) - PAGENUM * 40 && !showRshoulder) {
 		snd().playWrong();
 		return false;
